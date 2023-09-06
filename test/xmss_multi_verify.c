@@ -8,22 +8,20 @@
 #include "../randombytes.h"
 #include "../thpool.h"
 
-#define XMSS_VERIFICATION_THREADS_START 1
-#define XMSS_VERIFICATION_THREADS_LIMIT 16
-
+#define XMSS_SIGNING_THREADS_START 1
+#define XMSS_SIGNING_THREADS_LIMIT 16
+#define NUM_TESTS 10
 
 #ifdef XMSSMT
 #define XMSS_PARSE_OID xmssmt_parse_oid
-    #define XMSS_STR_TO_OID xmssmt_str_to_oid
-    #define XMSS_KEYPAIR xmssmt_keypair
-    #define XMSS_SIGN xmssmt_sign
-    #define XMSS_SIGN_OPEN xmssmt_sign_open
+#define XMSS_STR_TO_OID xmssmt_str_to_oid
+#define XMSS_KEYPAIR xmssmt_keypair
+#define XMSS_SIGN xmssmt_sign
 #else
 #define XMSS_PARSE_OID xmss_parse_oid
 #define XMSS_STR_TO_OID xmss_str_to_oid
 #define XMSS_KEYPAIR xmss_keypair
 #define XMSS_SIGN xmss_sign
-#define XMSS_SIGN_OPEN xmss_sign_open
 #endif
 
 #ifndef XMSS_VARIANT
@@ -34,31 +32,28 @@
 #endif
 #endif
 
-// Define data structure to pass multiple arguments to thread
 typedef struct {
-    unsigned char *pk;
+    unsigned char *sk;
     unsigned char *sm;
-    unsigned long long smlen;
-    unsigned char *mout;
-    unsigned long long *mlen;
-} verify_data;
+    unsigned long long *smlen;
+    unsigned char *m;
+    unsigned long long mlen;
+} sign_data;
 
-// Function which will be run in each thread to verify signatures
-void *verify_thread(void *arg)
+void *sign_thread(void *arg)
 {
-    verify_data *data = (verify_data *) arg;
-    XMSS_SIGN_OPEN(data->mout, data->mlen, data->sm, data->smlen, data->pk);
+    sign_data *data = (sign_data *) arg;
+    XMSS_SIGN(data->sk, data->sm, data->smlen, data->m, data->mlen);
 }
 
 int main()
 {
-    // Define different message lengths
     unsigned long long mlen_values[] = {1024, 65536, 262144, 524288, 1048576, 67108864, 134217728, 268435456, 536870912, 1073741824};
     int mlen_values_count = sizeof(mlen_values)/sizeof(mlen_values[0]);
 
     for(int j = 0; j < mlen_values_count; j++)
     {
-        unsigned long long int mlen = mlen_values[j];
+        unsigned long long mlen = mlen_values[j];
 
         xmss_params params;
         uint32_t oid;
@@ -76,51 +71,58 @@ int main()
         unsigned char pk[XMSS_OID_LEN + params.pk_bytes];
         unsigned char sk[XMSS_OID_LEN + params.sk_bytes];
         unsigned char *m = malloc(mlen);
-        unsigned char *sm = malloc(params.sig_bytes + mlen);
-        unsigned char *mout = malloc(params.sig_bytes + mlen);
-        unsigned long long smlen;
 
-        randombytes(m, mlen);
         XMSS_KEYPAIR(pk, sk, oid);
-        XMSS_SIGN(sk, sm, &smlen, m, mlen);
 
-        for (int num_threads = XMSS_VERIFICATION_THREADS_START; num_threads <=
-                                                                XMSS_VERIFICATION_THREADS_LIMIT; num_threads++)
+        for (int num_threads = XMSS_SIGNING_THREADS_START; num_threads <= XMSS_SIGNING_THREADS_LIMIT; num_threads++)
         {
-            threadpool thpool = thpool_init(num_threads);  // Initialize threadpool with current number of threads
+            double total_time = 0.0;
 
-            printf("Current mlen: %llu, current number of threads: %d\n", mlen, num_threads);
-            struct timeval start, end;
-
-            gettimeofday(&start, NULL);
-            verify_data verify_args[num_threads];
-            for(int i = 0; i < num_threads; i++)
+            for(int test = 0; test < NUM_TESTS*num_threads; test++)
             {
-                verify_data *this_arg = &verify_args[i];
-                this_arg->pk = pk;
-                this_arg->sm = sm;
-                this_arg->smlen = smlen;
-                this_arg->mout = mout;
-                this_arg->mlen = &mlen;
+                threadpool thpool = thpool_init(num_threads);
 
-                thpool_add_work(thpool, verify_thread, (void *)this_arg);
+                struct timeval start, end;
+                gettimeofday(&start, NULL);
+
+                sign_data sign_args[num_threads];
+
+                for(int i = 0; i < num_threads; i++)
+                {
+                    sign_data *this_arg = &sign_args[i];
+                    this_arg->sk = sk;
+                    this_arg->sm = malloc(params.sig_bytes + mlen);
+                    this_arg->smlen = malloc(sizeof(unsigned long long));
+                    this_arg->m = m;
+                    this_arg->mlen = mlen;
+                    thpool_add_work(thpool, sign_thread, (void *)this_arg);
+                }
+
+                thpool_wait(thpool);
+                gettimeofday(&end, NULL);
+
+                double elapsed = (end.tv_sec - start.tv_sec) * 1e6 +
+                                 (end.tv_usec - start.tv_usec);
+
+                total_time += elapsed;
+
+                for(int i = 0; i < num_threads; i++)
+                {
+                    free(sign_args[i].sm);
+                    free(sign_args[i].smlen);
+                }
+
+                thpool_destroy(thpool);
             }
 
+            double average_time = total_time / NUM_TESTS;
+            printf("Average time for %d threads: %lf us\n", num_threads, average_time);
+            double throughput = (num_threads * NUM_TESTS / total_time) * 1e6;  // signatures/sec
+            printf("Average throughput: %lf signatures/sec\n\n", throughput);
 
-            thpool_wait(thpool);
-            gettimeofday(&end, NULL);
-
-            double elapsed = (end.tv_sec - start.tv_sec) * 1e6 +
-                             (end.tv_usec - start.tv_usec);
-            printf("Total time to verify: %lf us\n", elapsed);
-            double throughput = (num_threads / elapsed) * 1e6;  // verifications/sec
-            printf("Throughput: %lf verifications/sec\n\n", throughput);
-            thpool_destroy(thpool);
         }
 
         free(m);
-        free(sm);
-        free(mout);
     }
 
     return 0;
