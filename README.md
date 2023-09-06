@@ -12,6 +12,44 @@ _When using the current code base, please be careful, expect changes and watch t
 
 For the SHA-2 hash functions (i.e. SHA-256 and SHA-512), we rely on OpenSSL. Make sure to install the OpenSSL development headers. On Debian-based systems, this is achieved by installing the OpenSSL development package `libssl-dev`.
 
+### Running the Tests
+
+Below are the steps for running the tests included in this project:
+
+1. Open your terminal.
+
+2. Navigate to the root directory of the project where the Makefile is located.
+
+3. Execute the following command to compile the tests:
+   
+```
+make tests
+```
+
+4. Then, to run the `performance_sign` test, use the following command:
+
+```
+./test/performance_sign
+```
+
+5. Similarly, to run the `performance_verify` test, use the following command:
+
+```
+./test/performance_verify
+```
+   
+Please note that the tests might take some time to complete. You may want to keep your terminal open until all the tests have completed.
+
+### Clean Up
+
+After running the tests, you can clean up the project directory by deleting the test executables. To do this, use the following command:
+
+```
+make clean
+```
+
+
+
 ### License
 
 This reference implementation was written by Andreas Hülsing and Joost Rijneveld. All included code is available under the CC0 1.0 Universal Public Domain Dedication.
