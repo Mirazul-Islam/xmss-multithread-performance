@@ -77,7 +77,7 @@ int main()
         for (int num_threads = XMSS_SIGNING_THREADS_START; num_threads <= XMSS_SIGNING_THREADS_LIMIT; num_threads++)
         {
             double total_time = 0.0;
-
+            printf("Current mlen: %llu, current number of threads: %d\n", mlen, num_threads);
             for(int test = 0; test < NUM_TESTS*num_threads; test++)
             {
                 threadpool thpool = thpool_init(num_threads);
@@ -115,7 +115,7 @@ int main()
                 thpool_destroy(thpool);
             }
 
-            double average_time = total_time / NUM_TESTS;
+            double average_time = total_time / num_threads * NUM_TESTS;
             printf("Average time for %d threads: %lf us\n", num_threads, average_time);
             double throughput = (num_threads * NUM_TESTS / total_time) * 1e6;  // signatures/sec
             printf("Average throughput: %lf signatures/sec\n\n", throughput);
